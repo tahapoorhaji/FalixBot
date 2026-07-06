@@ -53,10 +53,28 @@ jobs:
               
               # بررسی وجود فایل کوکی برای دور زدن کپچا و لاگین
               if os.path.exists('cookies.json'):
-                  print("🍪 Found cookies.json! Trying to bypass login...")
+                  print("🍪 Found cookies.json! Formatting cookies...")
                   with open('cookies.json', 'r') as f:
                       cookies = json.load(f)
-                      context.add_cookies(cookies)
+                      
+                      # اصلاح خودکار ساختار sameSite برای رفع ارور Playwright
+                      formatted_cookies = []
+                      for cookie in cookies:
+                          # تبدیل مقادیر غیر استاندارد به None یا حذف آنها
+                          if 'sameSite' in cookie:
+                              s_site = str(cookie['sameSite']).capitalize()
+                              if s_site in ['Strict', 'Lax', 'None']:
+                                  cookie['sameSite'] = s_site
+                              else:
+                                  cookie['sameSite'] = 'None' # مقدار امن پیش‌فرض
+                          
+                          # حذف فیلد id در صورت وجود (چون گاهی ارور ایجاد می‌کند)
+                          if 'id' in cookie:
+                              del cookie['id']
+                              
+                          formatted_cookies.append(cookie)
+                          
+                      context.add_cookies(formatted_cookies)
                   
                   page = context.new_page()
                   print("🔗 Going straight to Minecraft Server Console...")
