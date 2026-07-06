@@ -46,8 +46,8 @@ jobs:
           chat_id = os.getenv('CHAT_ID')
           action = os.getenv('SERVER_ACTION')
           
-          # آدرس سرور اصلی شما بر روی هاست برای چک کردن دکمه انصراف کاربر
-          APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" # آدرس دقیق ریف یا رندر خود را اینجا بنویسید
+          # آدرس سرور اصلی شما بر روی هاست (مثلاً رندر یا کویب)
+          APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" 
 
           def send_telegram_message(text, keyboard=None):
               url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -83,7 +83,22 @@ jobs:
                   page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
                   time.sleep(12)
                   
-                  # 📊 استخراج وضعیت سیستم (CPU & Memory)
+                  # 🎯 حذف ریشه‌ای و فیزیکی پاپ‌آپ تبلیغات (adModal) با جاوااسکریپت برای باز شدن کل صفحه
+                  print("Removing ad blocking modal elements...")
+                  page.evaluate("""
+                      () => {
+                          const modal = document.getElementById('adModal');
+                          if(modal) { modal.remove(); }
+                          const backdrops = document.getElementsByClassName('modal-backdrop');
+                          while(backdrops.length > 0) { backdrops[0].remove(); }
+                          document.body.classList.remove('modal-open');
+                          document.body.style.overflow = 'auto';
+                          document.body.style.pointerEvents = 'auto';
+                      }
+                  """)
+                  time.sleep(2)
+                  
+                  # 📊 استخراج وضعیت سیستم (CPU & Memory) پس از حذف پاپ‌آپ
                   cpu_text, mem_text = "نامشخص", "نامشخص"
                   try:
                       cpu_text = page.locator('div:has(> span:has-text("CPU")), tr:has-text("CPU")').inner_text().replace("CPU", "").strip().split('\n')[0]
@@ -97,36 +112,29 @@ jobs:
                   try:
                       if action == 'start':
                           send_telegram_message("🟢 در حال فشردن دکمه **Start**...")
-                          page.locator('button#startbutton').click()
+                          page.locator('button#startbutton').click(force=True)
                       elif action == 'stop':
                           send_telegram_message("🔴 در حال فشردن دکمه **Stop**...")
-                          page.locator('button#stopbutton').click()
+                          page.locator('button#stopbutton').click(force=True)
                       elif action == 'restart':
                           send_telegram_message("🔄 در حال فشردن دکمه **Restart**...")
-                          page.locator('button#restartbutton').click()
+                          page.locator('button#restartbutton').click(force=True)
                       
-                      time.sleep(4) # انتظار برای ظهور احتمالی پاپ‌آپ تبلیغات
-                      
-                      # 🎯 حذف و بستن خودکار پاپ‌آپ تبلیغاتی/حمایتی فالیکس
-                      popup_close_btn = page.locator('button:has-text("Cancel"), button:has-text("Close"), .modal-footer button')
-                      if popup_close_btn.count() > 0:
-                          popup_close_btn.first.click()
-                          send_telegram_message("🎯 **پاپ‌آپ تبلیغاتی فالیکس شناسایی و به طور خودکار رد شد!**")
-                          time.sleep(2)
-                      
+                      time.sleep(2)
                       if action in ['start', 'stop', 'restart']:
-                          send_telegram_message(f"✅ عملیات **{action.upper()}** با موفقیت و بدون برخورد با موانع اعمال شد!")
+                          send_telegram_message(f"✅ عملیات **{action.upper()}** با موفقیت اعمال شد!")
 
                   except Exception as btn_err:
-                      send_telegram_message(f"⚠️ خطای جزئی در فشردن دکمه یا بستن پاپ‌آپ: {btn_err}")
+                      send_telegram_message(f"⚠️ خطا در فشردن دکمه سرور: {btn_err}")
 
-                  # 📋 فرآیند استخراج زنده لاگ‌ها (چه در حالت دکمه Logs و چه بررسی پس از دکمه‌ها)
+                  # 📋 فرآیند استخراج زنده لاگ‌ها
                   if action == 'logs' or action in ['start', 'restart']:
                       send_telegram_message("📋 **[مرحله ۳/۳]** ایجاد لینک اشتراک‌گذاری عمومی جهت نمایش زنده کنسول...")
                       try:
-                          page.locator('button:has-text("Share"), #sharebutton').first.click()
+                          # اصلاح بر اساس آیدی دقیقی که لاگ شما به ما داد
+                          page.locator('button#shareConsoleBtn').click(force=True)
                           time.sleep(2)
-                          page.locator('button:has-text("Yes, Create Public Link")').click()
+                          page.locator('button:has-text("Yes, Create Public Link")').click(force=True)
                           time.sleep(4)
                           
                           shared_log_url = page.locator('a:has-text("View Shared Console Logs")').get_attribute('href')
@@ -138,10 +146,8 @@ jobs:
                               
                               send_telegram_message("🟢 **اتصال زنده برقرار شد.** در حال مانیتورینگ لحظه‌ای...", stop_keyboard)
                               
-                              # حلقه نمایش ثانیه‌ای لاگ‌ها با قابلیت انصراف کاربر
-                              for _ in range(30): # بررسی مداوم تا چند دقیقه
+                              for _ in range(45): # افزایش زمان بررسی زنده
                                   try:
-                                      # چک کردن اینکه آیا کاربر در تلگرام دکمه خروج را زده است
                                       check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": chat_id}).json()
                                       if check_stop.get("stop", False):
                                           send_telegram_message("⏹️ پخش زنده لاگ به دستور کاربر متوقف شد.")
@@ -152,7 +158,6 @@ jobs:
                                   time.sleep(3)
                                   raw_logs = page.locator('body, pre').inner_text()
                                   
-                                  # فیلتر شروع لاگ از خط مرجع درخواستی شما
                                   if "================================================================================" in raw_logs:
                                       clean_logs = raw_logs.split("================================================================================")[-1]
                                   else:
@@ -165,12 +170,12 @@ jobs:
                                       
                                   time.sleep(2)
                           else:
-                              send_telegram_message("❌ دکمه نمایش عمومی پیدا نشد؛ احتمالاً سرور خاموش است یا پنل لود نشده.")
+                              send_telegram_message("❌ لینک نمایش عمومی دریافت نشد؛ احتمالاً به دلیل خاموش بودن سرور دکمه غیرفعال است.")
                       except Exception as log_err:
                           send_telegram_message(f"❌ خطا در مانیتورینگ آنلاین لاگ: {log_err}")
                           
               else:
-                  send_telegram_message("❌ فایل `cookies.json` در ریپازیتوری یافت نشد. لطفاً ابتدا آن را آپلود کنید.")
+                  send_telegram_message("❌ فایل `cookies.json` یافت نشد.")
               
               browser.close()
           EOF
