@@ -47,13 +47,11 @@ jobs:
           action = os.getenv('SERVER_ACTION')
           APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" # آدرس دقیق هاست رندر یا کویب شما
 
-          # متغیری برای ذخیره شناسه پیامی که باید ثانیه‌ای ویرایش شود
           live_msg_id = None
 
           def send_or_edit_telegram(text, keyboard=None):
               global live_msg_id
               if live_msg_id is None:
-                  # اگر پیام اول است، بفرست
                   url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                   payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
                   if keyboard: payload["reply_markup"] = json.dumps(keyboard)
@@ -62,7 +60,6 @@ jobs:
                       if res.get("ok"): live_msg_id = res["result"]["message_id"]
                   except: pass
               else:
-                  # اگر پیام از قبل هست، فقط همان را ویرایش کن تا تلگرام شلوغ نشود
                   url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
                   payload = {"chat_id": chat_id, "message_id": live_msg_id, "text": text, "parse_mode": "Markdown"}
                   if keyboard: payload["reply_markup"] = json.dumps(keyboard)
@@ -92,15 +89,17 @@ jobs:
                   
                   page = context.new_page()
                   send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود با کوکی موفقیت‌آمیز بود. بارگذاری صفحه اصلی کنسول...")
-                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="networkidle")
-                  time.sleep(10)
                   
-                  # 🎯 در صورت نمایش پاپ‌آپ تبلیغاتی، دکمه Cancel یا Close فشرده شود
+                  # 🛠️ تغییر اصلاحی کلیدی: تغییر به commit برای دور زدن لود بی‌پایان تبلیغات شبکه
+                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
+                  time.sleep(15) # زمان کافی برای رندر شدن المان‌های اصلی دکمه و ترمینال
+                  
+                  # 🎯 تلاش برای بستن پاپ‌آپ تبلیغات در صورت وجود
                   try:
                       cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("Close"), #upgradeBackBtn').first
                       if cancel_btn.is_visible():
                           cancel_btn.click(force=True)
-                          send_or_edit_telegram("🎯 پاپ‌آپ تبلیغات/حمایت مالی با موفقیت Cancel شد.")
+                          send_or_edit_telegram("🎯 پاپ‌آپ تبلیغات/حمایت مالی با موفقیت کلیک و بسته شد.")
                           time.sleep(2)
                   except: pass
 
@@ -126,15 +125,13 @@ jobs:
                   except Exception as e:
                       send_or_edit_telegram(f"❌ خطا در فشردن دکمه: {e}")
 
-                  # 📋 استخراج زنده لاگ مستقیم از داخل خود صفحه (بدون زدن دکمه Share و بدون مزاحمت کلودفلر)
+                  # 📋 استخراج زنده لاگ مستقیم از داخل خود صفحه
                   if action == 'logs' or action in ['start', 'restart']:
                       last_log_chunk = ""
                       stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
                       
-                      # حلقه مانیتورینگ زنده (خوانش مستقیم از المان ترمینال صفحه)
                       for _ in range(40):
                           try:
-                              # چک کردن دستور لغو از سمت تلگرام
                               check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": chat_id}).json()
                               if check_stop.get("stop", False):
                                   send_or_edit_telegram("⏹️ نمایش زنده لاگ سرور متوقف شد.")
@@ -142,7 +139,6 @@ jobs:
                           except: pass
                           
                           try:
-                              # خواندن متن مستقیم از داخل بخش لاگ‌های ادیتور کنسول فالیکس
                               raw_logs = page.locator('.console-container, #console, pre, .terminal').inner_text()
                               
                               if "================================================================================" in raw_logs:
@@ -152,7 +148,6 @@ jobs:
                               
                               current_chunk = clean_logs[-1200:].strip()
                               
-                              # ساخت قالب پیام یکپارچه شامل منابع سیستم + لاگ لحظه‌ای
                               full_message = (
                                   f"📊 **وضعیت منابع سیستم:**\n"
                                   f"🔹 پردازنده: `{cpu_text}` | 🔸 رم: `{mem_text}`\n"
@@ -168,7 +163,6 @@ jobs:
                           
                           time.sleep(4)
                   else:
-                      # گزارش اتمام برای دستورات بدون لاگ زنده مثل Stop
                       send_or_edit_telegram(f"✅ دستور **{action.upper()}** با موفقیت به سرور ارسال شد.\n🔹 CPU: `{cpu_text}`\n🔸 Memory: `{mem_text}`")
               else:
                   send_or_edit_telegram("❌ فایل `cookies.json` یافت نشد.")
