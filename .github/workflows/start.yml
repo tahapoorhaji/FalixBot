@@ -4,9 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Action (start or stop)'
+        description: 'Action (start, stop, restart, logs)'
         required: true
         default: 'start'
+      chat_id:
+        description: 'Telegram User Chat ID'
+        required: true
 
 jobs:
   control-server:
@@ -23,107 +26,152 @@ jobs:
       - name: Install Playwright and Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install playwright
+          pip install playwright requests
           playwright install chromium --with-deps
 
       - name: Run Automation Script
         env:
-          FALIX_EMAIL: ${{ secrets.FALIX_EMAIL }}
-          FALIX_PASSWORD: ${{ secrets.FALIX_PASSWORD }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ github.event.inputs.chat_id }}
           SERVER_ACTION: ${{ github.event.inputs.action }}
         run: |
           cat << 'EOF' > script.py
           import os
           import time
           import json
+          import requests
           from playwright.sync_api import sync_playwright
 
-          email = os.getenv('FALIX_EMAIL')
-          password = os.getenv('FALIX_PASSWORD')
+          bot_token = os.getenv('BOT_TOKEN')
+          chat_id = os.getenv('CHAT_ID')
           action = os.getenv('SERVER_ACTION')
+          
+          # آدرس سرور اصلی شما بر روی هاست برای چک کردن دکمه انصراف کاربر
+          APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" # آدرس دقیق ریف یا رندر خود را اینجا بنویسید
+
+          def send_telegram_message(text, keyboard=None):
+              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+              if keyboard:
+                  payload["reply_markup"] = json.dumps(keyboard)
+              try: requests.post(url, json=payload)
+              except: pass
 
           with sync_playwright() as p:
+              send_telegram_message(f"🤖 **[مرحله ۱/۳]** مرورگر ابری با موفقیت باز شد. در حال ورود به فالیکس...")
               browser = p.chromium.launch(headless=True)
-              
               context = browser.new_context(
                   user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                   viewport={"width": 1280, "height": 720}
               )
               
               if os.path.exists('cookies.json'):
-                  print("🍪 Found cookies.json! Formatting cookies...")
                   with open('cookies.json', 'r') as f:
                       cookies = json.load(f)
-                      
                       formatted_cookies = []
                       for cookie in cookies:
                           if 'sameSite' in cookie:
                               s_site = str(cookie['sameSite']).capitalize()
-                              if s_site in ['Strict', 'Lax', 'None']:
-                                  cookie['sameSite'] = s_site
-                              else:
-                                  cookie['sameSite'] = 'None'
-                          
-                          if 'id' in cookie:
-                              del cookie['id']
-                              
+                              if s_site in ['Strict', 'Lax', 'None']: cookie['sameSite'] = s_site
+                              else: cookie['sameSite'] = 'None'
+                          if 'id' in cookie: del cookie['id']
                           formatted_cookies.append(cookie)
-                          
                       context.add_cookies(formatted_cookies)
                   
                   page = context.new_page()
-                  print("🔗 Going straight to Minecraft Server Console...")
-                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
-                  print("⏳ Waiting for elements to load fully...")
-                  time.sleep(12)
-              else:
-                  print("⚠️ No cookies.json found. Falling back to manual login...")
-                  page = context.new_page()
-                  page.goto('https://client.falixnodes.net/login', wait_until="commit")
-                  time.sleep(8)
-                  
-                  print("🔑 Filling login details...")
-                  page.fill('input[name="email"], input[type="email"]', email)
-                  page.fill('input[name="password"], input[type="password"]', password)
-                  
-                  print("🔑 Submitting login form...")
-                  page.locator('button[type="submit"]').click()
-                  time.sleep(10)
-                  
-                  print("🔗 Moving to Minecraft Server Console...")
+                  send_telegram_message(f"🔗 **[مرحله ۲/۳]** کوکی‌ها اعمال شدند. اتصال مستقیم به کنسول سرور ماینکرافت...")
                   page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
                   time.sleep(12)
+                  
+                  # 📊 استخراج وضعیت سیستم (CPU & Memory)
+                  cpu_text, mem_text = "نامشخص", "نامشخص"
+                  try:
+                      cpu_text = page.locator('div:has(> span:has-text("CPU")), tr:has-text("CPU")').inner_text().replace("CPU", "").strip().split('\n')[0]
+                      mem_text = page.locator('div:has(> span:has-text("Memory")), tr:has-text("Memory")').inner_text().replace("Memory", "").strip().split('\n')[0]
+                  except: pass
+                  
+                  status_report = f"📊 **گزارش منابع سرور:**\n🔹 درصد پردازنده (CPU): `{cpu_text}`\n🔸 مقدار حافظه (Memory): `{mem_text}`"
+                  send_telegram_message(status_report)
 
-              # بررسی وضعیت نهایی و زدن دکمه‌ها بر اساس ID دقیق و یکتا
-              try:
-                  page.screenshot(path="console_page.png")
-                  print("📸 Screenshot taken: console_page.png")
-                  
-                  if action == 'start':
-                      print("🟢 Clicking START Button (Using #startbutton)...")
-                      # استفاده از آی‌دی دقیق برای دکمه استارت جهت رفع مشکل تداخل دکمه‌ها
-                      page.locator('button#startbutton').click()
-                  elif action == 'stop':
-                      print("🔴 Clicking STOP Button (Using #stopbutton)...")
-                      # استفاده از آی‌دی دقیق برای دکمه استاپ
-                      page.locator('button#stopbutton').click()
+                  # 🎛️ اعمال دکمه‌های اصلی مدیریت سرور
+                  try:
+                      if action == 'start':
+                          send_telegram_message("🟢 در حال فشردن دکمه **Start**...")
+                          page.locator('button#startbutton').click()
+                      elif action == 'stop':
+                          send_telegram_message("🔴 در حال فشردن دکمه **Stop**...")
+                          page.locator('button#stopbutton').click()
+                      elif action == 'restart':
+                          send_telegram_message("🔄 در حال فشردن دکمه **Restart**...")
+                          page.locator('button#restartbutton').click()
                       
-                  time.sleep(6)
-                  page.screenshot(path="after_action_page.png")
-                  print("✅ Process Finished Successfully!")
-                  
-              except Exception as e:
-                  print(f"❌ Error occurred during action: {e}")
-                  page.screenshot(path="error_page.png")
-                  raise e
-              finally:
-                  browser.close()
+                      time.sleep(4) # انتظار برای ظهور احتمالی پاپ‌آپ تبلیغات
+                      
+                      # 🎯 حذف و بستن خودکار پاپ‌آپ تبلیغاتی/حمایتی فالیکس
+                      popup_close_btn = page.locator('button:has-text("Cancel"), button:has-text("Close"), .modal-footer button')
+                      if popup_close_btn.count() > 0:
+                          popup_close_btn.first.click()
+                          send_telegram_message("🎯 **پاپ‌آپ تبلیغاتی فالیکس شناسایی و به طور خودکار رد شد!**")
+                          time.sleep(2)
+                      
+                      if action in ['start', 'stop', 'restart']:
+                          send_telegram_message(f"✅ عملیات **{action.upper()}** با موفقیت و بدون برخورد با موانع اعمال شد!")
+
+                  except Exception as btn_err:
+                      send_telegram_message(f"⚠️ خطای جزئی در فشردن دکمه یا بستن پاپ‌آپ: {btn_err}")
+
+                  # 📋 فرآیند استخراج زنده لاگ‌ها (چه در حالت دکمه Logs و چه بررسی پس از دکمه‌ها)
+                  if action == 'logs' or action in ['start', 'restart']:
+                      send_telegram_message("📋 **[مرحله ۳/۳]** ایجاد لینک اشتراک‌گذاری عمومی جهت نمایش زنده کنسول...")
+                      try:
+                          page.locator('button:has-text("Share"), #sharebutton').first.click()
+                          time.sleep(2)
+                          page.locator('button:has-text("Yes, Create Public Link")').click()
+                          time.sleep(4)
+                          
+                          shared_log_url = page.locator('a:has-text("View Shared Console Logs")').get_attribute('href')
+                          if shared_log_url:
+                              page.goto(shared_log_url, wait_until="commit")
+                              
+                              last_log_chunk = ""
+                              stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
+                              
+                              send_telegram_message("🟢 **اتصال زنده برقرار شد.** در حال مانیتورینگ لحظه‌ای...", stop_keyboard)
+                              
+                              # حلقه نمایش ثانیه‌ای لاگ‌ها با قابلیت انصراف کاربر
+                              for _ in range(30): # بررسی مداوم تا چند دقیقه
+                                  try:
+                                      # چک کردن اینکه آیا کاربر در تلگرام دکمه خروج را زده است
+                                      check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": chat_id}).json()
+                                      if check_stop.get("stop", False):
+                                          send_telegram_message("⏹️ پخش زنده لاگ به دستور کاربر متوقف شد.")
+                                          break
+                                  except: pass
+                                  
+                                  page.reload(wait_until="commit")
+                                  time.sleep(3)
+                                  raw_logs = page.locator('body, pre').inner_text()
+                                  
+                                  # فیلتر شروع لاگ از خط مرجع درخواستی شما
+                                  if "================================================================================" in raw_logs:
+                                      clean_logs = raw_logs.split("================================================================================")[-1]
+                                  else:
+                                      clean_logs = raw_logs
+                                      
+                                  current_chunk = clean_logs[-1500:].strip()
+                                  if current_chunk != last_log_chunk and len(current_chunk) > 10:
+                                      send_telegram_message(f"📝 **کنسول سرور:**\n```text\n{current_chunk}\n```", stop_keyboard)
+                                      last_log_chunk = current_chunk
+                                      
+                                  time.sleep(2)
+                          else:
+                              send_telegram_message("❌ دکمه نمایش عمومی پیدا نشد؛ احتمالاً سرور خاموش است یا پنل لود نشده.")
+                      except Exception as log_err:
+                          send_telegram_message(f"❌ خطا در مانیتورینگ آنلاین لاگ: {log_err}")
+                          
+              else:
+                  send_telegram_message("❌ فایل `cookies.json` در ریپازیتوری یافت نشد. لطفاً ابتدا آن را آپلود کنید.")
+              
+              browser.close()
           EOF
           python script.py
-
-      - name: Upload Screenshots
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: falix-screenshots
-          path: /home/runner/work/FalixBot/FalixBot/*.png
