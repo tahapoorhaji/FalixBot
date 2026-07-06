@@ -39,6 +39,7 @@ jobs:
           import os
           import time
           import json
+          import re
           import requests
           from playwright.sync_api import sync_playwright
 
@@ -67,7 +68,7 @@ jobs:
                   except: pass
 
           with sync_playwright() as p:
-              send_or_edit_telegram("🤖 **[مرحله ۱/۲]** در حال آماده‌سازی مرورگر ابری و ورود به پنل...")
+              send_or_edit_telegram("🤖 **[مرحله ۱/۲]** در حال آماده‌سازی مرورگر ابری...")
               browser = p.chromium.launch(headless=True)
               context = browser.new_context(
                   user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -88,59 +89,61 @@ jobs:
                       context.add_cookies(formatted_cookies)
                   
                   page = context.new_page()
-                  send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود با کوکی موفقیت‌آمیز بود. بارگذاری صفحه اصلی کنسول...")
-                  
-                  # 🛠️ تغییر اصلاحی کلیدی: تغییر به commit برای دور زدن لود بی‌پایان تبلیغات شبکه
+                  send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود موفقیت‌آمیز بود. بارگذاری صفحه کنسول سرور...")
                   page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
-                  time.sleep(15) # زمان کافی برای رندر شدن المان‌های اصلی دکمه و ترمینال
+                  time.sleep(15)
                   
-                  # 🎯 تلاش برای بستن پاپ‌آپ تبلیغات در صورت وجود
+                  # بستن پاپ‌آپ تبلیغات در صورت وجود
                   try:
                       cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("Close"), #upgradeBackBtn').first
                       if cancel_btn.is_visible():
                           cancel_btn.click(force=True)
-                          send_or_edit_telegram("🎯 پاپ‌آپ تبلیغات/حمایت مالی با موفقیت کلیک و بسته شد.")
                           time.sleep(2)
                   except: pass
 
-                  # 📊 استخراج زنده وضعیت منابع سیستم
-                  cpu_text, mem_text = "نامشخص", "نامشخص"
-                  try:
-                      cpu_text = page.locator('div:has(> span:has-text("CPU")), tr:has-text("CPU")').inner_text().replace("CPU", "").strip().split('\n')[0]
-                      mem_text = page.locator('div:has(> span:has-text("Memory")), tr:has-text("Memory")').inner_text().replace("Memory", "").strip().split('\n')[0]
-                  except: pass
-
-                  # 🎛️ اجرای دکمه‌ها
+                  # 🎛️ اجرای دکمه‌های اصلی سرور
                   try:
                       if action == 'start':
-                          send_or_edit_telegram("🟢 در حال فشردن دکمه استارت...")
                           page.locator('button#startbutton').click(force=True)
                       elif action == 'stop':
-                          send_or_edit_telegram("🔴 در حال فشردن دکمه خاموش...")
                           page.locator('button#stopbutton').click(force=True)
                       elif action == 'restart':
-                          send_or_edit_telegram("🔄 در حال فشردن دکمه ری‌استارت...")
                           page.locator('button#restartbutton').click(force=True)
                       time.sleep(3)
                   except Exception as e:
-                      send_or_edit_telegram(f"❌ خطا در فشردن دکمه: {e}")
+                      send_or_edit_telegram(f"❌ خطا در فشردن دکمه سرور: {e}")
 
-                  # 📋 استخراج زنده لاگ مستقیم از داخل خود صفحه
+                  # 📋 استخراج زنده لاگ و وضعیت سخت‌افزار
                   if action == 'logs' or action in ['start', 'restart']:
-                      last_log_chunk = ""
                       stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
                       
-                      for _ in range(40):
+                      for _ in range(50):
+                          # ۱. بررسی آنی و قاطع وضعیت توقف از سمت کاربر
                           try:
                               check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": chat_id}).json()
                               if check_stop.get("stop", False):
-                                  send_or_edit_telegram("⏹️ نمایش زنده لاگ سرور متوقف شد.")
-                                  break
+                                  send_or_edit_telegram("⏹️ پخش زنده کنسول به دستور شما کاملاً متوقف شد.")
+                                  break # خروج فوری و قاطع بدون هیچ ارسال مجدد داده
                           except: pass
                           
                           try:
-                              raw_logs = page.locator('.console-container, #console, pre, .terminal').inner_text()
+                              # استخراج متن کل صفحه برای شکار مشخصات سخت‌افزاری
+                              page_text = page.locator('body').inner_text()
                               
+                              # پیدا کردن مقدار RAM (عددی که به GB ختم می‌شود و ۲.۵ نیست)
+                              ram_matches = re.findall(r'([0-9.]+)\s*GB', page_text)
+                              mem_text = "نامشخص"
+                              for match in ram_matches:
+                                  if match != "2.5":
+                                      mem_text = f"{match} GB"
+                                      break
+                              
+                              # پیدا کردن مقدار CPU (عددی که به % ختم می‌شود)
+                              cpu_matches = re.findall(r'([0-9.]+)\s*%', page_text)
+                              cpu_text = f"{cpu_matches[0]}%" if cpu_matches else "نامشخص"
+                              
+                              # استخراج مستقیم متن لاگ‌ها
+                              raw_logs = page.locator('.console-container, #console, pre, .terminal').inner_text()
                               if "================================================================================" in raw_logs:
                                   clean_logs = raw_logs.split("================================================================================")[-1]
                               else:
@@ -156,14 +159,15 @@ jobs:
                                   f"```text\n{current_chunk}\n```"
                               )
                               
-                              if current_chunk != last_log_chunk and len(current_chunk) > 5:
-                                  send_or_edit_telegram(full_message, stop_keyboard)
-                                  last_log_chunk = current_chunk
-                          except: pass
+                              # ادیت زنده روی همان پیام تکی
+                              send_or_edit_telegram(full_message, stop_keyboard)
+                              
+                          except Exception as e:
+                              print(f"Log loop error: {e}")
                           
                           time.sleep(4)
                   else:
-                      send_or_edit_telegram(f"✅ دستور **{action.upper()}** با موفقیت به سرور ارسال شد.\n🔹 CPU: `{cpu_text}`\n🔸 Memory: `{mem_text}`")
+                      send_or_edit_telegram(f"✅ دستور **{action.upper()}** با موفقیت به سرور ارسال شد.")
               else:
                   send_or_edit_telegram("❌ فایل `cookies.json` یافت نشد.")
               
