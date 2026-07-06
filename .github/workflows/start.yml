@@ -45,30 +45,25 @@ jobs:
           with sync_playwright() as p:
               browser = p.chromium.launch(headless=True)
               
-              # شبیه‌سازی دقیق یک مرورگر واقعی برای امنیت بیشتر
               context = browser.new_context(
                   user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                   viewport={"width": 1280, "height": 720}
               )
               
-              # بررسی وجود فایل کوکی برای دور زدن کپچا و لاگین
               if os.path.exists('cookies.json'):
                   print("🍪 Found cookies.json! Formatting cookies...")
                   with open('cookies.json', 'r') as f:
                       cookies = json.load(f)
                       
-                      # اصلاح خودکار ساختار sameSite برای رفع ارور Playwright
                       formatted_cookies = []
                       for cookie in cookies:
-                          # تبدیل مقادیر غیر استاندارد به None یا حذف آنها
                           if 'sameSite' in cookie:
                               s_site = str(cookie['sameSite']).capitalize()
                               if s_site in ['Strict', 'Lax', 'None']:
                                   cookie['sameSite'] = s_site
                               else:
-                                  cookie['sameSite'] = 'None' # مقدار امن پیش‌فرض
+                                  cookie['sameSite'] = 'None'
                           
-                          # حذف فیلد id در صورت وجود (چون گاهی ارور ایجاد می‌کند)
                           if 'id' in cookie:
                               del cookie['id']
                               
@@ -78,13 +73,15 @@ jobs:
                   
                   page = context.new_page()
                   print("🔗 Going straight to Minecraft Server Console...")
-                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="networkidle")
-                  time.sleep(5)
+                  # تغییر وضعیت انتظار به commit برای جلوگیری از قفل شدن روی شبکه زنده کنسول
+                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
+                  print("⏳ Waiting for elements to load fully...")
+                  time.sleep(12)
               else:
                   print("⚠️ No cookies.json found. Falling back to manual login...")
                   page = context.new_page()
-                  page.goto('https://client.falixnodes.net/login', wait_until="networkidle")
-                  time.sleep(5)
+                  page.goto('https://client.falixnodes.net/login', wait_until="commit")
+                  time.sleep(8)
                   
                   print("🔑 Filling login details...")
                   page.fill('input[name="email"], input[type="email"]', email)
@@ -92,15 +89,16 @@ jobs:
                   
                   print("🔑 Submitting login form...")
                   page.locator('button[type="submit"]').click()
-                  time.sleep(8)
+                  time.sleep(10)
                   
                   print("🔗 Moving to Minecraft Server Console...")
-                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="networkidle")
-                  time.sleep(5)
+                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
+                  time.sleep(12)
 
               # بررسی وضعیت نهایی و زدن دکمه‌ها
               try:
                   page.screenshot(path="console_page.png")
+                  print("📸 Screenshot taken: console_page.png")
                   
                   if action == 'start':
                       print("🟢 Clicking START Button...")
@@ -109,7 +107,8 @@ jobs:
                       print("🔴 Clicking STOP Button...")
                       page.locator('button:has-text("Stop")').click()
                       
-                  time.sleep(5)
+                  time.sleep(6)
+                  page.screenshot(path="after_action_page.png")
                   print("✅ Process Finished Successfully!")
                   
               except Exception as e:
@@ -121,9 +120,10 @@ jobs:
           EOF
           python script.py
 
-      - name: Upload Screenshots on Failure
+      # اصلاح آدرس برای اینکه مطمئن شویم عکس‌ها حتماً برداشته و آپلود می‌شوند
+      - name: Upload Screenshots
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: falix-screenshots
-          path: "*.png"
+          path: /home/runner/work/FalixBot/FalixBot/*.png
