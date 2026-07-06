@@ -45,20 +45,32 @@ jobs:
           bot_token = os.getenv('BOT_TOKEN')
           chat_id = os.getenv('CHAT_ID')
           action = os.getenv('SERVER_ACTION')
-          
-          # آدرس سرور اصلی شما بر روی هاست (مثلاً رندر یا کویب)
-          APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" 
+          APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" # آدرس دقیق هاست رندر یا کویب شما
 
-          def send_telegram_message(text, keyboard=None):
-              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-              payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
-              if keyboard:
-                  payload["reply_markup"] = json.dumps(keyboard)
-              try: requests.post(url, json=payload)
-              except: pass
+          # متغیری برای ذخیره شناسه پیامی که باید ثانیه‌ای ویرایش شود
+          live_msg_id = None
+
+          def send_or_edit_telegram(text, keyboard=None):
+              global live_msg_id
+              if live_msg_id is None:
+                  # اگر پیام اول است، بفرست
+                  url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                  payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+                  if keyboard: payload["reply_markup"] = json.dumps(keyboard)
+                  try:
+                      res = requests.post(url, json=payload).json()
+                      if res.get("ok"): live_msg_id = res["result"]["message_id"]
+                  except: pass
+              else:
+                  # اگر پیام از قبل هست، فقط همان را ویرایش کن تا تلگرام شلوغ نشود
+                  url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
+                  payload = {"chat_id": chat_id, "message_id": live_msg_id, "text": text, "parse_mode": "Markdown"}
+                  if keyboard: payload["reply_markup"] = json.dumps(keyboard)
+                  try: requests.post(url, json=payload)
+                  except: pass
 
           with sync_playwright() as p:
-              send_telegram_message(f"🤖 **[مرحله ۱/۳]** مرورگر ابری با موفقیت باز شد. در حال ورود به فالیکس...")
+              send_or_edit_telegram("🤖 **[مرحله ۱/۲]** در حال آماده‌سازی مرورگر ابری و ورود به پنل...")
               browser = p.chromium.launch(headless=True)
               context = browser.new_context(
                   user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -79,103 +91,87 @@ jobs:
                       context.add_cookies(formatted_cookies)
                   
                   page = context.new_page()
-                  send_telegram_message(f"🔗 **[مرحله ۲/۳]** کوکی‌ها اعمال شدند. اتصال مستقیم به کنسول سرور ماینکرافت...")
-                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
-                  time.sleep(12)
+                  send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود با کوکی موفقیت‌آمیز بود. بارگذاری صفحه اصلی کنسول...")
+                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="networkidle")
+                  time.sleep(10)
                   
-                  # 🎯 حذف ریشه‌ای و فیزیکی پاپ‌آپ تبلیغات (adModal) با جاوااسکریپت برای باز شدن کل صفحه
-                  print("Removing ad blocking modal elements...")
-                  page.evaluate("""
-                      () => {
-                          const modal = document.getElementById('adModal');
-                          if(modal) { modal.remove(); }
-                          const backdrops = document.getElementsByClassName('modal-backdrop');
-                          while(backdrops.length > 0) { backdrops[0].remove(); }
-                          document.body.classList.remove('modal-open');
-                          document.body.style.overflow = 'auto';
-                          document.body.style.pointerEvents = 'auto';
-                      }
-                  """)
-                  time.sleep(2)
-                  
-                  # 📊 استخراج وضعیت سیستم (CPU & Memory) پس از حذف پاپ‌آپ
+                  # 🎯 در صورت نمایش پاپ‌آپ تبلیغاتی، دکمه Cancel یا Close فشرده شود
+                  try:
+                      cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("Close"), #upgradeBackBtn').first
+                      if cancel_btn.is_visible():
+                          cancel_btn.click(force=True)
+                          send_or_edit_telegram("🎯 پاپ‌آپ تبلیغات/حمایت مالی با موفقیت Cancel شد.")
+                          time.sleep(2)
+                  except: pass
+
+                  # 📊 استخراج زنده وضعیت منابع سیستم
                   cpu_text, mem_text = "نامشخص", "نامشخص"
                   try:
                       cpu_text = page.locator('div:has(> span:has-text("CPU")), tr:has-text("CPU")').inner_text().replace("CPU", "").strip().split('\n')[0]
                       mem_text = page.locator('div:has(> span:has-text("Memory")), tr:has-text("Memory")').inner_text().replace("Memory", "").strip().split('\n')[0]
                   except: pass
-                  
-                  status_report = f"📊 **گزارش منابع سرور:**\n🔹 درصد پردازنده (CPU): `{cpu_text}`\n🔸 مقدار حافظه (Memory): `{mem_text}`"
-                  send_telegram_message(status_report)
 
-                  # 🎛️ اعمال دکمه‌های اصلی مدیریت سرور
+                  # 🎛️ اجرای دکمه‌ها
                   try:
                       if action == 'start':
-                          send_telegram_message("🟢 در حال فشردن دکمه **Start**...")
+                          send_or_edit_telegram("🟢 در حال فشردن دکمه استارت...")
                           page.locator('button#startbutton').click(force=True)
                       elif action == 'stop':
-                          send_telegram_message("🔴 در حال فشردن دکمه **Stop**...")
+                          send_or_edit_telegram("🔴 در حال فشردن دکمه خاموش...")
                           page.locator('button#stopbutton').click(force=True)
                       elif action == 'restart':
-                          send_telegram_message("🔄 در حال فشردن دکمه **Restart**...")
+                          send_or_edit_telegram("🔄 در حال فشردن دکمه ری‌استارت...")
                           page.locator('button#restartbutton').click(force=True)
-                      
-                      time.sleep(2)
-                      if action in ['start', 'stop', 'restart']:
-                          send_telegram_message(f"✅ عملیات **{action.upper()}** با موفقیت اعمال شد!")
+                      time.sleep(3)
+                  except Exception as e:
+                      send_or_edit_telegram(f"❌ خطا در فشردن دکمه: {e}")
 
-                  except Exception as btn_err:
-                      send_telegram_message(f"⚠️ خطا در فشردن دکمه سرور: {btn_err}")
-
-                  # 📋 فرآیند استخراج زنده لاگ‌ها
+                  # 📋 استخراج زنده لاگ مستقیم از داخل خود صفحه (بدون زدن دکمه Share و بدون مزاحمت کلودفلر)
                   if action == 'logs' or action in ['start', 'restart']:
-                      send_telegram_message("📋 **[مرحله ۳/۳]** ایجاد لینک اشتراک‌گذاری عمومی جهت نمایش زنده کنسول...")
-                      try:
-                          # اصلاح بر اساس آیدی دقیقی که لاگ شما به ما داد
-                          page.locator('button#shareConsoleBtn').click(force=True)
-                          time.sleep(2)
-                          page.locator('button:has-text("Yes, Create Public Link")').click(force=True)
+                      last_log_chunk = ""
+                      stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
+                      
+                      # حلقه مانیتورینگ زنده (خوانش مستقیم از المان ترمینال صفحه)
+                      for _ in range(40):
+                          try:
+                              # چک کردن دستور لغو از سمت تلگرام
+                              check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": chat_id}).json()
+                              if check_stop.get("stop", False):
+                                  send_or_edit_telegram("⏹️ نمایش زنده لاگ سرور متوقف شد.")
+                                  break
+                          except: pass
+                          
+                          try:
+                              # خواندن متن مستقیم از داخل بخش لاگ‌های ادیتور کنسول فالیکس
+                              raw_logs = page.locator('.console-container, #console, pre, .terminal').inner_text()
+                              
+                              if "================================================================================" in raw_logs:
+                                  clean_logs = raw_logs.split("================================================================================")[-1]
+                              else:
+                                  clean_logs = raw_logs
+                              
+                              current_chunk = clean_logs[-1200:].strip()
+                              
+                              # ساخت قالب پیام یکپارچه شامل منابع سیستم + لاگ لحظه‌ای
+                              full_message = (
+                                  f"📊 **وضعیت منابع سیستم:**\n"
+                                  f"🔹 پردازنده: `{cpu_text}` | 🔸 رم: `{mem_text}`\n"
+                                  f"━━━━━━━━━━━━━━━━━━━━\n"
+                                  f"📝 **لاین‌های پایانی کنسول سرور:**\n"
+                                  f"```text\n{current_chunk}\n```"
+                              )
+                              
+                              if current_chunk != last_log_chunk and len(current_chunk) > 5:
+                                  send_or_edit_telegram(full_message, stop_keyboard)
+                                  last_log_chunk = current_chunk
+                          except: pass
+                          
                           time.sleep(4)
-                          
-                          shared_log_url = page.locator('a:has-text("View Shared Console Logs")').get_attribute('href')
-                          if shared_log_url:
-                              page.goto(shared_log_url, wait_until="commit")
-                              
-                              last_log_chunk = ""
-                              stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
-                              
-                              send_telegram_message("🟢 **اتصال زنده برقرار شد.** در حال مانیتورینگ لحظه‌ای...", stop_keyboard)
-                              
-                              for _ in range(45): # افزایش زمان بررسی زنده
-                                  try:
-                                      check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": chat_id}).json()
-                                      if check_stop.get("stop", False):
-                                          send_telegram_message("⏹️ پخش زنده لاگ به دستور کاربر متوقف شد.")
-                                          break
-                                  except: pass
-                                  
-                                  page.reload(wait_until="commit")
-                                  time.sleep(3)
-                                  raw_logs = page.locator('body, pre').inner_text()
-                                  
-                                  if "================================================================================" in raw_logs:
-                                      clean_logs = raw_logs.split("================================================================================")[-1]
-                                  else:
-                                      clean_logs = raw_logs
-                                      
-                                  current_chunk = clean_logs[-1500:].strip()
-                                  if current_chunk != last_log_chunk and len(current_chunk) > 10:
-                                      send_telegram_message(f"📝 **کنسول سرور:**\n```text\n{current_chunk}\n```", stop_keyboard)
-                                      last_log_chunk = current_chunk
-                                      
-                                  time.sleep(2)
-                          else:
-                              send_telegram_message("❌ لینک نمایش عمومی دریافت نشد؛ احتمالاً به دلیل خاموش بودن سرور دکمه غیرفعال است.")
-                      except Exception as log_err:
-                          send_telegram_message(f"❌ خطا در مانیتورینگ آنلاین لاگ: {log_err}")
-                          
+                  else:
+                      # گزارش اتمام برای دستورات بدون لاگ زنده مثل Stop
+                      send_or_edit_telegram(f"✅ دستور **{action.upper()}** با موفقیت به سرور ارسال شد.\n🔹 CPU: `{cpu_text}`\n🔸 Memory: `{mem_text}`")
               else:
-                  send_telegram_message("❌ فایل `cookies.json` یافت نشد.")
+                  send_or_edit_telegram("❌ فایل `cookies.json` یافت نشد.")
               
               browser.close()
           EOF
