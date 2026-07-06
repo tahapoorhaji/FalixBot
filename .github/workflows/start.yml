@@ -73,7 +73,6 @@ jobs:
                   
                   page = context.new_page()
                   print("🔗 Going straight to Minecraft Server Console...")
-                  # تغییر وضعیت انتظار به commit برای جلوگیری از قفل شدن روی شبکه زنده کنسول
                   page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
                   print("⏳ Waiting for elements to load fully...")
                   time.sleep(12)
@@ -95,17 +94,19 @@ jobs:
                   page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
                   time.sleep(12)
 
-              # بررسی وضعیت نهایی و زدن دکمه‌ها
+              # بررسی وضعیت نهایی و زدن دکمه‌ها بر اساس ID دقیق و یکتا
               try:
                   page.screenshot(path="console_page.png")
                   print("📸 Screenshot taken: console_page.png")
                   
                   if action == 'start':
-                      print("🟢 Clicking START Button...")
-                      page.locator('button:has-text("Start")').click()
+                      print("🟢 Clicking START Button (Using #startbutton)...")
+                      # استفاده از آی‌دی دقیق برای دکمه استارت جهت رفع مشکل تداخل دکمه‌ها
+                      page.locator('button#startbutton').click()
                   elif action == 'stop':
-                      print("🔴 Clicking STOP Button...")
-                      page.locator('button:has-text("Stop")').click()
+                      print("🔴 Clicking STOP Button (Using #stopbutton)...")
+                      # استفاده از آی‌دی دقیق برای دکمه استاپ
+                      page.locator('button#stopbutton').click()
                       
                   time.sleep(6)
                   page.screenshot(path="after_action_page.png")
@@ -120,7 +121,6 @@ jobs:
           EOF
           python script.py
 
-      # اصلاح آدرس برای اینکه مطمئن شویم عکس‌ها حتماً برداشته و آپلود می‌شوند
       - name: Upload Screenshots
         uses: actions/upload-artifact@v4
         if: always()
