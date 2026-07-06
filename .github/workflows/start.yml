@@ -113,24 +113,25 @@ jobs:
                   except Exception as e:
                       send_or_edit_telegram(f"❌ خطا در فشردن دکمه سرور: {e}")
 
-                  # 📋 استخراج زنده لاگ و وضعیت سخت‌افزار
+                  # 📋 استخراج زنده و همزمان لاگ و وضعیت سخت‌افزار
                   if action == 'logs' or action in ['start', 'restart']:
                       stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
                       
+                      # حلقه مانیتورینگ زنده همزمان
                       for _ in range(50):
-                          # ۱. بررسی آنی و قاطع وضعیت توقف از سمت کاربر
+                          # بررسی آنی وضعیت توقف از سمت کاربر
                           try:
                               check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": chat_id}).json()
                               if check_stop.get("stop", False):
                                   send_or_edit_telegram("⏹️ پخش زنده کنسول به دستور شما کاملاً متوقف شد.")
-                                  break # خروج فوری و قاطع بدون هیچ ارسال مجدد داده
+                                  break
                           except: pass
                           
                           try:
-                              # استخراج متن کل صفحه برای شکار مشخصات سخت‌افزاری
+                              # 🔄 [به‌روزرسانی زنده منابع]: استخراج متن صفحه در هر دور از حلقه
                               page_text = page.locator('body').inner_text()
                               
-                              # پیدا کردن مقدار RAM (عددی که به GB ختم می‌شود و ۲.۵ نیست)
+                              # پیدا کردن زنده مقدار RAM
                               ram_matches = re.findall(r'([0-9.]+)\s*GB', page_text)
                               mem_text = "نامشخص"
                               for match in ram_matches:
@@ -138,11 +139,11 @@ jobs:
                                       mem_text = f"{match} GB"
                                       break
                               
-                              # پیدا کردن مقدار CPU (عددی که به % ختم می‌شود)
+                              # پیدا کردن زنده مقدار CPU
                               cpu_matches = re.findall(r'([0-9.]+)\s*%', page_text)
                               cpu_text = f"{cpu_matches[0]}%" if cpu_matches else "نامشخص"
                               
-                              # استخراج مستقیم متن لاگ‌ها
+                              # استخراج زنده متن لاگ‌ها
                               raw_logs = page.locator('.console-container, #console, pre, .terminal').inner_text()
                               if "================================================================================" in raw_logs:
                                   clean_logs = raw_logs.split("================================================================================")[-1]
@@ -151,15 +152,16 @@ jobs:
                               
                               current_chunk = clean_logs[-1200:].strip()
                               
+                              # ساخت پیام نهایی با مقادیر کاملاً زنده شده
                               full_message = (
-                                  f"📊 **وضعیت منابع سیستم:**\n"
+                                  f"📊 **وضعیت منابع سیستم (زنده):**\n"
                                   f"🔹 پردازنده: `{cpu_text}` | 🔸 رم: `{mem_text}`\n"
                                   f"━━━━━━━━━━━━━━━━━━━━\n"
                                   f"📝 **لاین‌های پایانی کنسول سرور:**\n"
                                   f"```text\n{current_chunk}\n```"
                               )
                               
-                              # ادیت زنده روی همان پیام تکی
+                              # ویرایش پیام تکی با آخرین دیتای لاگ و قطعات سخت‌افزاری
                               send_or_edit_telegram(full_message, stop_keyboard)
                               
                           except Exception as e:
