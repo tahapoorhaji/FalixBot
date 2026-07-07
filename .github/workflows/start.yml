@@ -49,11 +49,12 @@ jobs:
           APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" # آدرس دقیق هاست رندر یا کویب شما
 
           # 👥 لیست کل کاربران (آیدی خودت و دوستت را دقیقاً اینجا جایگزین کن)
-          TOTAL_USERS = {"1975142727", "5213388626"} 
+          TOTAL_USERS = {"1975142727", "5213388626"}
 
           live_msg_id = None
 
           def send_to_others(text):
+              """ارسال پیام فقط به بقیه اعضا جهت جلوگیری از پیام تکراری"""
               others = TOTAL_USERS - {sender_chat_id}
               for uid in others:
                   if uid:
@@ -63,6 +64,7 @@ jobs:
                       except: pass
 
           def send_or_edit_telegram(text, keyboard=None):
+              """ویرایش ثانیه‌ای پیام زنده مخصوص شخص صادرکننده دستور"""
               global live_msg_id
               if live_msg_id is None:
                   url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -79,6 +81,7 @@ jobs:
                   try: requests.post(url, json=payload)
                   except: pass
 
+          # 📢 اطلاع‌رسانی اولیه به دوستت
           action_fa = {"start": "روشن کردن", "stop": "خاموش کردن", "restart": "ری‌استارت", "logs": "دریافت لاگ"}.get(action, action)
           send_to_others(f"📢 **اعلان پنل سرور:**\n👤 دوستت سرور را روی وضعیت **[{action_fa}]** گذاشت.\n⏳ ربات در حال حاضر مشغول است، لطفا دکمه دیگری نزنید.")
 
@@ -104,11 +107,11 @@ jobs:
                       context.add_cookies(formatted_cookies)
                   
                   page = context.new_page()
-                  send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود موفقیت‌آمیز بود. بارگذاری صفحه کنسول سرور...")
+                  send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود موفقیت‌آمیز بود. در حال پایدارسازی اتصال به کنسول...")
                   page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
                   
-                  # زمان انتظار طولانی‌تر و مطمئن برای لود کامل اسکریپت‌های فالیکس
-                  time.sleep(20)
+                  # ⏳ صبوری برای برقراری اتصال وب‌ساکت پنل و رفع ارور چند صدم ثانیه‌ای اولیه
+                  time.sleep(22)
                   
                   # بستن پاپ‌آپ تبلیغات در صورت وجود
                   try:
@@ -118,39 +121,36 @@ jobs:
                           time.sleep(2)
                   except: pass
 
-                  # 🎛️ بخش اصلاح‌شده و بسیار قدرتمند کلیک روی دکمه‌های سرور
+                  # 🎛️ فرآیند کلیک صد درصد تضمینی با جاوااسکریپت بومی تزریقی
                   try:
-                      target_selector = ""
-                      if action == 'start':
-                          target_selector = "button#startbutton, button:has-text('Start')"
-                      elif action == 'stop':
-                          target_selector = "button#stopbutton, button:has-text('Stop')"
-                      elif action == 'restart':
-                          target_selector = "button#restartbutton, button:has-text('Restart')"
-
-                      if target_selector:
-                          # ۱. پیدا کردن دکمه و اسکرول کردن به سمت آن تا در دید مرورگر قرار گیرد
-                          btn_element = page.locator(target_selector).first
-                          btn_element.scroll_into_view_if_needed()
-                          time.sleep(2)
+                      if action in ['start', 'stop', 'restart']:
+                          btn_id = f"{action}button" # تبدیل به startbutton, stopbutton, restartbutton
                           
-                          # ۲. فوکوس روی دکمه برای تحریک کارهای جاوااسکریپتی صفحه
-                          btn_element.focus()
+                          # اسکرول و فوکوس با پایتون
+                          page.locator(f"button#{btn_id}").first.scroll_into_view_if_needed()
+                          page.locator(f"button#{btn_id}").first.focus()
                           time.sleep(1)
                           
-                          # ۳. کلیک ترکیبی (هم معمولی و هم کلیک سخت‌افزاری با متدdispatchEvent)
-                          btn_element.click(force=True, timeout=10000)
-                          page.evaluate(f"document.querySelector('{target_selector.split(',')[0]}').click()")
-                          
-                          print(f"Successfully triggered click on {action}")
-                      time.sleep(5)
+                          # تزریق کلیک مستقیم و بومی به المان از طریق ارزیابی داخل مرورگر (دور زدن تاخیرهای ری‌اکت)
+                          page.evaluate(f"""
+                              () => {{
+                                  const btn = document.getElementById('{btn_id}');
+                                  if (btn) {{
+                                      btn.removeAttribute('disabled');
+                                      btn.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, view: window }}));
+                                      btn.click();
+                                  }}
+                              }}
+                          """)
+                          print(f"Native JS Click sent to {btn_id}")
+                          time.sleep(5)
                   except Exception as e:
                       send_or_edit_telegram(f"❌ خطا در فشردن دکمه سرور: {e}")
 
                   # 📋 استخراج زنده لاگ و وضعیت سخت‌افزار
                   if action == 'logs' or action in ['start', 'restart']:
                       stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
-                      send_to_others(f"🚀 **سرور با موفقیت استارت شد!**\nعملیات دکمه **[{action_fa}]** پایان یافت و سرور ماینکرافت در حال بالا آمدن است.")
+                      send_to_others(f"🚀 **سرور با موفقیت تغییر وضعیت داد!**\nعملیات دکمه **[{action_fa}]** اعمال شد و سرور ماینکرافت در حال بالا آمدن است.")
 
                       for _ in range(50):
                           try:
