@@ -44,17 +44,31 @@ jobs:
           from playwright.sync_api import sync_playwright
 
           bot_token = os.getenv('BOT_TOKEN')
-          chat_id = os.getenv('CHAT_ID')
+          sender_chat_id = str(os.getenv('CHAT_ID'))
           action = os.getenv('SERVER_ACTION')
           APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" # آدرس دقیق هاست رندر یا کویب شما
 
+          # 👥 لیست کل کاربران (آیدی خودت و دوستت را دقیقاً اینجا جایگزین کن)
+          TOTAL_USERS = {"1975142727", "5213388626"} 
+
           live_msg_id = None
 
+          def send_to_others(text):
+              """ارسال پیام اعلان فقط به بقیه اعضا (به جز شخص استارت‌کننده) جهت جلوگیری از پیام تکراری"""
+              others = TOTAL_USERS - {sender_chat_id}
+              for uid in others:
+                  if uid:
+                      url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                      payload = {"chat_id": uid, "text": text, "parse_mode": "Markdown"}
+                      try: requests.post(url, json=payload)
+                      except: pass
+
           def send_or_edit_telegram(text, keyboard=None):
+              """ویرایش ثانیه‌ای پیام زنده، مخصوص خود شخص صادرکننده دستور"""
               global live_msg_id
               if live_msg_id is None:
                   url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                  payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+                  payload = {"chat_id": sender_chat_id, "text": text, "parse_mode": "Markdown"}
                   if keyboard: payload["reply_markup"] = json.dumps(keyboard)
                   try:
                       res = requests.post(url, json=payload).json()
@@ -62,10 +76,14 @@ jobs:
                   except: pass
               else:
                   url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
-                  payload = {"chat_id": chat_id, "message_id": live_msg_id, "text": text, "parse_mode": "Markdown"}
+                  payload = {"chat_id": sender_chat_id, "message_id": live_msg_id, "text": text, "parse_mode": "Markdown"}
                   if keyboard: payload["reply_markup"] = json.dumps(keyboard)
                   try: requests.post(url, json=payload)
                   except: pass
+
+          # 📢 اطلاع‌رسانی به دوستت که شما سرور را استارت زدی
+          action_fa = {"start": "روشن کردن", "stop": "خاموش کردن", "restart": "ری‌استارت", "logs": "دریافت لاگ"}.get(action, action)
+          send_to_others(f"📢 **اعلان پنل سرور:**\n👤 دوستت سرور را روی وضعیت **[{action_fa}]** گذاشت.\n⏳ ربات در حال حاضر مشغول است، لطفا دکمه دیگری نزنید.")
 
           with sync_playwright() as p:
               send_or_edit_telegram("🤖 **[مرحله ۱/۲]** در حال آماده‌سازی مرورگر ابری...")
@@ -117,20 +135,20 @@ jobs:
                   if action == 'logs' or action in ['start', 'restart']:
                       stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
                       
+                      # فرستادن پیام موفقیت نهایی به دوستت
+                      send_to_others(f"🚀 **سرور با موفقیت استارت شد!**\nعملیات دکمه **[{action_fa}]** پایان یافت و سرور ماینکرافت در حال بالا آمدن است.")
+
                       for _ in range(50):
-                          # ۱. بررسی آنی و قاطع وضعیت توقف از سمت کاربر
                           try:
-                              check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": chat_id}).json()
+                              check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": sender_chat_id}).json()
                               if check_stop.get("stop", False):
                                   send_or_edit_telegram("⏹️ پخش زنده کنسول به دستور شما کاملاً متوقف شد.")
-                                  break # خروج فوری و قاطع بدون هیچ ارسال مجدد داده
+                                  break
                           except: pass
                           
                           try:
-                              # استخراج متن کل صفحه برای شکار مشخصات سخت‌افزاری
                               page_text = page.locator('body').inner_text()
                               
-                              # پیدا کردن مقدار RAM (عددی که به GB ختم می‌شود و ۲.۵ نیست)
                               ram_matches = re.findall(r'([0-9.]+)\s*GB', page_text)
                               mem_text = "نامشخص"
                               for match in ram_matches:
@@ -138,11 +156,9 @@ jobs:
                                       mem_text = f"{match} GB"
                                       break
                               
-                              # پیدا کردن مقدار CPU (عددی که به % ختم می‌شود)
                               cpu_matches = re.findall(r'([0-9.]+)\s*%', page_text)
                               cpu_text = f"{cpu_matches[0]}%" if cpu_matches else "نامشخص"
                               
-                              # استخراج مستقیم متن لاگ‌ها
                               raw_logs = page.locator('.console-container, #console, pre, .terminal').inner_text()
                               if "================================================================================" in raw_logs:
                                   clean_logs = raw_logs.split("================================================================================")[-1]
@@ -159,7 +175,6 @@ jobs:
                                   f"```text\n{current_chunk}\n```"
                               )
                               
-                              # ادیت زنده روی همان پیام تکی
                               send_or_edit_telegram(full_message, stop_keyboard)
                               
                           except Exception as e:
@@ -168,6 +183,7 @@ jobs:
                           time.sleep(4)
                   else:
                       send_or_edit_telegram(f"✅ دستور **{action.upper()}** با موفقیت به سرور ارسال شد.")
+                      send_to_others(f"🛑 **اعلان پنل سرور:**\nسرور ماینکرافت توسط دوستت خاموش شد.")
               else:
                   send_or_edit_telegram("❌ فایل `cookies.json` یافت نشد.")
               
