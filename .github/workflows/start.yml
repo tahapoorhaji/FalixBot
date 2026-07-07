@@ -1,5 +1,9 @@
 name: Falix Control Bot
 
+concurrency:
+  group: falix-control
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:
@@ -44,12 +48,14 @@ jobs:
           from playwright.sync_api import sync_playwright
 
           bot_token = os.getenv('BOT_TOKEN')
-          sender_chat_id = str(os.getenv('CHAT_ID'))
+          sender_chat_id = str(os.getenv('CHAT_ID')).strip()
           action = os.getenv('SERVER_ACTION')
           APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" # آدرس دقیق هاست رندر یا کویب شما
 
-          # 👥 لیست کل کاربران (آیدی خودت و دوستت را دقیقاً اینجا جایگزین کن)
-          TOTAL_USERS = {"1975142727", "5213388626"} 
+          # 👥 آیدی خودت و دوستت رو اینجا دقیقاً داخل کوتیشن بنویس (مثال: "1111" و "2222")
+          USER_1 = "5213388626"
+          USER_2 = "1975142727"
+          TOTAL_USERS = {USER_1, USER_2}
 
           live_msg_id = None
 
@@ -80,7 +86,6 @@ jobs:
                   except: pass
 
           def click_button_native(page, btn_action):
-              """تابع کمکی برای کلیک ۱۰۰٪ تضمینی و بومی روی دکمه‌ها"""
               btn_id = f"{btn_action}button"
               try:
                   page.locator(f"button#{btn_id}").first.scroll_into_view_if_needed()
@@ -100,7 +105,6 @@ jobs:
               except Exception as e:
                   print(f"Error clicking {btn_id}: {e}")
 
-          # 📢 اطلاع‌رسانی اولیه به دوستت
           action_fa = {"start": "روشن کردن", "stop": "خاموش کردن", "restart": "ری‌استارت", "logs": "دریافت لاگ"}.get(action, action)
           send_to_others(f"📢 **اعلان پنل سرور:**\n👤 دوستت سرور را روی وضعیت **[{action_fa}]** گذاشت.\n⏳ ربات در حال حاضر مشغول است، لطفا دکمه دیگری نزنید.")
 
@@ -127,12 +131,11 @@ jobs:
                   
                   page = context.new_page()
                   send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود موفقیت‌آمیز بود. در حال پایدارسازی اتصال به کنسول...")
-                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
                   
-                  # صبوری اولیه برای لود المان‌ها
+                  # باز کردن مستقیم صفحه با متد پایداری بالا
+                  page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
                   time.sleep(22)
                   
-                  # بستن پاپ‌آپ تبلیغات در صورت وجود
                   try:
                       cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("Close"), #upgradeBackBtn').first
                       if cancel_btn.is_visible():
@@ -140,12 +143,10 @@ jobs:
                           time.sleep(2)
                   except: pass
 
-                  # 🎛️ اجرای دکمه استارت/استاپ اول
                   if action in ['start', 'stop', 'restart']:
                       click_button_native(page, action)
                       time.sleep(5)
 
-                  # 📋 استخراج زنده لاگ و مدیریت هوشمند صف انتظار اول صبح
                   if action == 'logs' or action in ['start', 'restart']:
                       stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
                       send_to_others(f"🚀 **دستور اولیه [{action_fa}] ارسال شد.**\nربات در حال مانیتورینگ وضعیت کنسول است...")
@@ -161,7 +162,6 @@ jobs:
                           except: pass
                           
                           try:
-                              # ۱. دریافت اطلاعات سخت‌افزاری
                               page_text = page.locator('body').inner_text()
                               ram_matches = re.findall(r'([0-9.]+)\s*GB', page_text)
                               mem_text = "نامشخص"
@@ -173,7 +173,6 @@ jobs:
                               cpu_matches = re.findall(r'([0-9.]+)\s*%', page_text)
                               cpu_text = f"{cpu_matches[0]}%" if cpu_matches else "نامشخص"
                               
-                              # ۲. دریافت و بررسی متن لاگ‌ها
                               raw_logs = page.locator('.console-container, #console, pre, .terminal').inner_text()
                               if "================================================================================" in raw_logs:
                                   clean_logs = raw_logs.split("================================================================================")[-1]
@@ -182,23 +181,19 @@ jobs:
                               
                               current_chunk = clean_logs[-1200:].strip()
 
-                              # 🔥 [هوشمندی اول صبح]: اگر دکمه استارت زده شده ولی کنسول هنوز خالی است یا دیتای بازی ندارد
                               if action == 'start' and first_morning_check and len(current_chunk) < 15:
-                                  first_morning_check = False # فقط یک بار این شرط اجرا شود
+                                  first_morning_check = False
                                   
                                   queue_msg = "⏳ **سرور امروز برای اولین بار روشن می‌شود و در صف فالیکس قرار دارد...**\n⚙️ ربات برای خروج از صف ۳ دقیقه منتظر می‌ماند و سپس استارت نهایی را می‌زند. لطفا صبور باشید."
                                   send_or_edit_telegram(queue_msg)
                                   send_to_others("⏳ سرور در صف بیدارباش فالیکس است. ربات ۳ دقیقه دیگر استارت نهایی را می‌زند.")
                                   
-                                  # ۳ دقیقه انتظار کامل در همان صفحه بدون دستکاری لود صفحه
                                   time.sleep(180) 
                                   
-                                  # زدن دکمه استارت برای بار دوم در همان صفحه جهت روشن شدن واقعی!
                                   click_button_native(page, 'start')
                                   time.sleep(5)
-                                  continue # رفتن به دور بعدی حلقه برای خواندن لاگ‌های جدید بعد از استارت دوم
+                                  continue
 
-                              # قالب‌بندی پیام استاندارد تلگرام
                               full_message = (
                                   f"📊 **وضعیت منابع سیستم:**\n"
                                   f"🔹 پردازنده: `{cpu_text}` | 🔸 رم: `{mem_text}`\n"
