@@ -49,12 +49,11 @@ jobs:
           APP_URL = "https://نام-اپلیکیشن-شما-در-هاست.com" # آدرس دقیق هاست رندر یا کویب شما
 
           # 👥 لیست کل کاربران (آیدی خودت و دوستت را دقیقاً اینجا جایگزین کن)
-          TOTAL_USERS = {"1975142727", "5213388626"}
+          TOTAL_USERS = {"1975142727", "5213388626"} 
 
           live_msg_id = None
 
           def send_to_others(text):
-              """ارسال پیام فقط به بقیه اعضا جهت جلوگیری از پیام تکراری"""
               others = TOTAL_USERS - {sender_chat_id}
               for uid in others:
                   if uid:
@@ -64,7 +63,6 @@ jobs:
                       except: pass
 
           def send_or_edit_telegram(text, keyboard=None):
-              """ویرایش ثانیه‌ای پیام زنده مخصوص شخص صادرکننده دستور"""
               global live_msg_id
               if live_msg_id is None:
                   url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -80,6 +78,27 @@ jobs:
                   if keyboard: payload["reply_markup"] = json.dumps(keyboard)
                   try: requests.post(url, json=payload)
                   except: pass
+
+          def click_button_native(page, btn_action):
+              """تابع کمکی برای کلیک ۱۰۰٪ تضمینی و بومی روی دکمه‌ها"""
+              btn_id = f"{btn_action}button"
+              try:
+                  page.locator(f"button#{btn_id}").first.scroll_into_view_if_needed()
+                  page.locator(f"button#{btn_id}").first.focus()
+                  time.sleep(1)
+                  page.evaluate(f"""
+                      () => {{
+                          const btn = document.getElementById('{btn_id}');
+                          if (btn) {{
+                              btn.removeAttribute('disabled');
+                              btn.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, view: window }}));
+                              btn.click();
+                          }}
+                      }}
+                  """)
+                  print(f"Executed native click on: {btn_id}")
+              except Exception as e:
+                  print(f"Error clicking {btn_id}: {e}")
 
           # 📢 اطلاع‌رسانی اولیه به دوستت
           action_fa = {"start": "روشن کردن", "stop": "خاموش کردن", "restart": "ری‌استارت", "logs": "دریافت لاگ"}.get(action, action)
@@ -110,7 +129,7 @@ jobs:
                   send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود موفقیت‌آمیز بود. در حال پایدارسازی اتصال به کنسول...")
                   page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
                   
-                  # ⏳ صبوری برای برقراری اتصال وب‌ساکت پنل و رفع ارور چند صدم ثانیه‌ای اولیه
+                  # صبوری اولیه برای لود المان‌ها
                   time.sleep(22)
                   
                   # بستن پاپ‌آپ تبلیغات در صورت وجود
@@ -121,38 +140,19 @@ jobs:
                           time.sleep(2)
                   except: pass
 
-                  # 🎛️ فرآیند کلیک صد درصد تضمینی با جاوااسکریپت بومی تزریقی
-                  try:
-                      if action in ['start', 'stop', 'restart']:
-                          btn_id = f"{action}button" # تبدیل به startbutton, stopbutton, restartbutton
-                          
-                          # اسکرول و فوکوس با پایتون
-                          page.locator(f"button#{btn_id}").first.scroll_into_view_if_needed()
-                          page.locator(f"button#{btn_id}").first.focus()
-                          time.sleep(1)
-                          
-                          # تزریق کلیک مستقیم و بومی به المان از طریق ارزیابی داخل مرورگر (دور زدن تاخیرهای ری‌اکت)
-                          page.evaluate(f"""
-                              () => {{
-                                  const btn = document.getElementById('{btn_id}');
-                                  if (btn) {{
-                                      btn.removeAttribute('disabled');
-                                      btn.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, view: window }}));
-                                      btn.click();
-                                  }}
-                              }}
-                          """)
-                          print(f"Native JS Click sent to {btn_id}")
-                          time.sleep(5)
-                  except Exception as e:
-                      send_or_edit_telegram(f"❌ خطا در فشردن دکمه سرور: {e}")
+                  # 🎛️ اجرای دکمه استارت/استاپ اول
+                  if action in ['start', 'stop', 'restart']:
+                      click_button_native(page, action)
+                      time.sleep(5)
 
-                  # 📋 استخراج زنده لاگ و وضعیت سخت‌افزار
+                  # 📋 استخراج زنده لاگ و مدیریت هوشمند صف انتظار اول صبح
                   if action == 'logs' or action in ['start', 'restart']:
                       stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
-                      send_to_others(f"🚀 **سرور با موفقیت تغییر وضعیت داد!**\nعملیات دکمه **[{action_fa}]** اعمال شد و سرور ماینکرافت در حال بالا آمدن است.")
+                      send_to_others(f"🚀 **دستور اولیه [{action_fa}] ارسال شد.**\nربات در حال مانیتورینگ وضعیت کنسول است...")
 
-                      for _ in range(50):
+                      first_morning_check = True
+
+                      for loop_step in range(60):
                           try:
                               check_stop = requests.post(f"{APP_URL}/stop_log", json={"chat_id": sender_chat_id}).json()
                               if check_stop.get("stop", False):
@@ -161,8 +161,8 @@ jobs:
                           except: pass
                           
                           try:
+                              # ۱. دریافت اطلاعات سخت‌افزاری
                               page_text = page.locator('body').inner_text()
-                              
                               ram_matches = re.findall(r'([0-9.]+)\s*GB', page_text)
                               mem_text = "نامشخص"
                               for match in ram_matches:
@@ -173,6 +173,7 @@ jobs:
                               cpu_matches = re.findall(r'([0-9.]+)\s*%', page_text)
                               cpu_text = f"{cpu_matches[0]}%" if cpu_matches else "نامشخص"
                               
+                              # ۲. دریافت و بررسی متن لاگ‌ها
                               raw_logs = page.locator('.console-container, #console, pre, .terminal').inner_text()
                               if "================================================================================" in raw_logs:
                                   clean_logs = raw_logs.split("================================================================================")[-1]
@@ -180,13 +181,30 @@ jobs:
                                   clean_logs = raw_logs
                               
                               current_chunk = clean_logs[-1200:].strip()
-                              
+
+                              # 🔥 [هوشمندی اول صبح]: اگر دکمه استارت زده شده ولی کنسول هنوز خالی است یا دیتای بازی ندارد
+                              if action == 'start' and first_morning_check and len(current_chunk) < 15:
+                                  first_morning_check = False # فقط یک بار این شرط اجرا شود
+                                  
+                                  queue_msg = "⏳ **سرور امروز برای اولین بار روشن می‌شود و در صف فالیکس قرار دارد...**\n⚙️ ربات برای خروج از صف ۳ دقیقه منتظر می‌ماند و سپس استارت نهایی را می‌زند. لطفا صبور باشید."
+                                  send_or_edit_telegram(queue_msg)
+                                  send_to_others("⏳ سرور در صف بیدارباش فالیکس است. ربات ۳ دقیقه دیگر استارت نهایی را می‌زند.")
+                                  
+                                  # ۳ دقیقه انتظار کامل در همان صفحه بدون دستکاری لود صفحه
+                                  time.sleep(180) 
+                                  
+                                  # زدن دکمه استارت برای بار دوم در همان صفحه جهت روشن شدن واقعی!
+                                  click_button_native(page, 'start')
+                                  time.sleep(5)
+                                  continue # رفتن به دور بعدی حلقه برای خواندن لاگ‌های جدید بعد از استارت دوم
+
+                              # قالب‌بندی پیام استاندارد تلگرام
                               full_message = (
                                   f"📊 **وضعیت منابع سیستم:**\n"
                                   f"🔹 پردازنده: `{cpu_text}` | 🔸 رم: `{mem_text}`\n"
                                   f"━━━━━━━━━━━━━━━━━━━━\n"
                                   f"📝 **لاین‌های پایانی کنسول سرور:**\n"
-                                  f"```text\n{current_chunk}\n```"
+                                  f"```text\n{current_chunk if current_chunk else 'کنسول در انتظار دریافت اطلاعات...'}\n```"
                               )
                               
                               send_or_edit_telegram(full_message, stop_keyboard)
