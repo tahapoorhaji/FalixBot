@@ -54,7 +54,6 @@ jobs:
           live_msg_id = None
 
           def send_to_others(text):
-              """ارسال پیام اعلان فقط به بقیه اعضا (به جز شخص استارت‌کننده) جهت جلوگیری از پیام تکراری"""
               others = TOTAL_USERS - {sender_chat_id}
               for uid in others:
                   if uid:
@@ -64,7 +63,6 @@ jobs:
                       except: pass
 
           def send_or_edit_telegram(text, keyboard=None):
-              """ویرایش ثانیه‌ای پیام زنده، مخصوص خود شخص صادرکننده دستور"""
               global live_msg_id
               if live_msg_id is None:
                   url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -81,7 +79,6 @@ jobs:
                   try: requests.post(url, json=payload)
                   except: pass
 
-          # 📢 اطلاع‌رسانی به دوستت که شما سرور را استارت زدی
           action_fa = {"start": "روشن کردن", "stop": "خاموش کردن", "restart": "ری‌استارت", "logs": "دریافت لاگ"}.get(action, action)
           send_to_others(f"📢 **اعلان پنل سرور:**\n👤 دوستت سرور را روی وضعیت **[{action_fa}]** گذاشت.\n⏳ ربات در حال حاضر مشغول است، لطفا دکمه دیگری نزنید.")
 
@@ -109,33 +106,50 @@ jobs:
                   page = context.new_page()
                   send_or_edit_telegram("🔗 **[مرحله ۲/۲]** ورود موفقیت‌آمیز بود. بارگذاری صفحه کنسول سرور...")
                   page.goto('https://client.falixnodes.net/server/3241406/console', wait_until="commit")
-                  time.sleep(15)
+                  
+                  # زمان انتظار طولانی‌تر و مطمئن برای لود کامل اسکریپت‌های فالیکس
+                  time.sleep(20)
                   
                   # بستن پاپ‌آپ تبلیغات در صورت وجود
                   try:
                       cancel_btn = page.locator('button:has-text("Cancel"), button:has-text("Close"), #upgradeBackBtn').first
                       if cancel_btn.is_visible():
-                          cancel_btn.click(force=True)
+                          cancel_btn.click(force=True, timeout=5000)
                           time.sleep(2)
                   except: pass
 
-                  # 🎛️ اجرای دکمه‌های اصلی سرور
+                  # 🎛️ بخش اصلاح‌شده و بسیار قدرتمند کلیک روی دکمه‌های سرور
                   try:
+                      target_selector = ""
                       if action == 'start':
-                          page.locator('button#startbutton').click(force=True)
+                          target_selector = "button#startbutton, button:has-text('Start')"
                       elif action == 'stop':
-                          page.locator('button#stopbutton').click(force=True)
+                          target_selector = "button#stopbutton, button:has-text('Stop')"
                       elif action == 'restart':
-                          page.locator('button#restartbutton').click(force=True)
-                      time.sleep(3)
+                          target_selector = "button#restartbutton, button:has-text('Restart')"
+
+                      if target_selector:
+                          # ۱. پیدا کردن دکمه و اسکرول کردن به سمت آن تا در دید مرورگر قرار گیرد
+                          btn_element = page.locator(target_selector).first
+                          btn_element.scroll_into_view_if_needed()
+                          time.sleep(2)
+                          
+                          # ۲. فوکوس روی دکمه برای تحریک کارهای جاوااسکریپتی صفحه
+                          btn_element.focus()
+                          time.sleep(1)
+                          
+                          # ۳. کلیک ترکیبی (هم معمولی و هم کلیک سخت‌افزاری با متدdispatchEvent)
+                          btn_element.click(force=True, timeout=10000)
+                          page.evaluate(f"document.querySelector('{target_selector.split(',')[0]}').click()")
+                          
+                          print(f"Successfully triggered click on {action}")
+                      time.sleep(5)
                   except Exception as e:
                       send_or_edit_telegram(f"❌ خطا در فشردن دکمه سرور: {e}")
 
                   # 📋 استخراج زنده لاگ و وضعیت سخت‌افزار
                   if action == 'logs' or action in ['start', 'restart']:
                       stop_keyboard = {"inline_keyboard": [[{"text": "🛑 پایان نمایش کنسول", "callback_data": "stop_current_stream"}]]}
-                      
-                      # فرستادن پیام موفقیت نهایی به دوستت
                       send_to_others(f"🚀 **سرور با موفقیت استارت شد!**\nعملیات دکمه **[{action_fa}]** پایان یافت و سرور ماینکرافت در حال بالا آمدن است.")
 
                       for _ in range(50):
